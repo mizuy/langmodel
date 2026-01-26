@@ -1,0 +1,22 @@
+[project]
+name = "langmodel"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "endolab",
+    "nccdb",
+    "unsloth-mlx>=0.3.3",
+    "unsloth[apple-silicon]>=2025.11.1",
+]
+
+[tool.uv.sources]
+endolab = { path = "../endolab", editable = true }
+nccdb = { path = "../nccdb", editable = true }
+
+[dependency-groups]
+dev = [
+    "ipykernel>=7.1.0",
+    "jupyter>=1.1.1",
+]

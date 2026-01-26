@@ -1,0 +1,19 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+prompt_engineering/experiment/
+cache/
+old/
+uv.lock
+
+finetune/adapters/
+finetune/lora_model/
+finetune/merged/
+finetune/outputs/
