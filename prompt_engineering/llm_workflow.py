@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -490,10 +491,25 @@ class Experiment:
             runs=runs,
         )
 
+    def _next_run_num_for_name(self, name: str) -> int:
+        """base_dir内の run_{name}_* を調べ、最大の番号+1を返す。存在しなければ1。"""
+        pattern = re.compile(rf"^run_{re.escape(name)}_(\d+)$")
+        max_num = 0
+        if self.base_dir.exists():
+            for p in self.base_dir.iterdir():
+                if not p.is_dir():
+                    continue
+                m = pattern.match(p.name)
+                if m:
+                    max_num = max(max_num, int(m.group(1)))
+        return max_num + 1
+
     def run(
         self,
         classifier: LLMClassifier,
         df: pl.DataFrame,
+        *,
+        name: str = "default",
         batch_size: int = 10,
     ) -> Run:
         """新しいrunを実行し、prompt/resultsを保存（評価は行わない）
@@ -501,14 +517,15 @@ class Experiment:
         Args:
             classifier: LLM分類器
             df: 入力DataFrame（id_columnとそれ以外の必要な列を含む）
+            name: runの名前。run_dirは run_{name}_{num:03} となる。nameごとに番号は独立。
             batch_size: バッチサイズ
 
         Returns:
             Runオブジェクト
         """
-        # 次のrun_idを決定
-        next_run_num = len(self.runs) + 1
-        run_id = f"run_{next_run_num:03d}"
+        # 次のrun_idを決定（既存の run_{name}_* の最大番号+1。len(self.runs)は使わない）
+        next_run_num = self._next_run_num_for_name(name)
+        run_id = f"run_{name}_{next_run_num:03d}"
         run_dir = self.base_dir / run_id
 
         # Run.create()を呼び出してrunを作成

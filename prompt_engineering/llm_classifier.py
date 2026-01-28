@@ -11,6 +11,7 @@ from itertools import batched
 from pathlib import Path
 from typing import TYPE_CHECKING
 import logging
+import httpx
 
 import polars as pl
 from loguru import logger as _default_logger
@@ -59,7 +60,8 @@ class LLMClassifier:
         target_column: str,
         *,
         multiple_choice_prompt: bool = False,
-        api_base: str = "http://localhost:1234/v1",
+        #api_base: str = "http://localhost:1234/v1",
+        api_base: str = "http://localhost:11434/v1",
         model: str = "local-model",
     ):
         """分類タスクの設定を保持.
@@ -82,9 +84,10 @@ class LLMClassifier:
         self.model = model
 
         # ローカル接続向けにNO_PROXYを設定
-        os.environ["NO_PROXY"] = "localhost,127.0.0.1"
+        #os.environ["NO_PROXY"] = "localhost,127.0.0.1"
 
-        self.client = OpenAI(base_url=api_base, api_key="lm_studio")
+        self.http_client = httpx.Client(trust_env=False)
+        self.client = OpenAI(base_url=api_base, api_key="lm_studio", http_client=self.http_client)
 
     def classify(
         self,
@@ -105,7 +108,7 @@ class LLMClassifier:
         """
         log = logger or _default_logger
 
-        log.info(f"Classification started at {datetime.now()}")
+        log.info(f"Classification started at {datetime.now()}, size={len(df)}")
         results = self._process_batches(df, batch_size, log)
 
         # post_process: responseを処理してlm_{target_column}を作成
