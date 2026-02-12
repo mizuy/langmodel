@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -87,7 +88,18 @@ class LLMClassifier:
         #os.environ["NO_PROXY"] = "localhost,127.0.0.1"
 
         self.http_client = httpx.Client(trust_env=False)
-        self.client = OpenAI(base_url=api_base, api_key="lm_studio", http_client=self.http_client)
+        self.client = OpenAI(base_url=self.api_base, api_key="lm_studio", http_client=self.http_client)
+
+    def _recreate_clients(self) -> None:
+        """Connection Error対策: httpx.Client と OpenAI クライアントを再作成する."""
+        try:
+            self.http_client.close()
+        except Exception:
+            pass
+        self.http_client = httpx.Client(trust_env=False)
+        self.client = OpenAI(
+            base_url=self.api_base, api_key="lm_studio", http_client=self.http_client
+        )
 
     def classify(
         self,
@@ -173,33 +185,49 @@ class LLMClassifier:
         return pl.concat(all_results) if all_results else pl.DataFrame()
 
     def _get_response(self, batch_df: pl.DataFrame, logger: "Logger") -> str:
-        """バッチデータからLLMの応答を取得."""
+        """バッチデータからLLMの応答を取得.
+
+        Connection Error時は httpx.Client を再作成し、少し待って最大3回までリトライする。
+        3回連続失敗時はメッセージを出して終了する。
+        """
         batch_json = json.dumps(batch_df.to_dicts(), ensure_ascii=False)
         expected_ids = batch_df[self.id_column].to_list()
 
         logger.debug("-" * 40)
         logger.debug(f"Batch: {expected_ids}")
 
-        try:
-            response = self.client.responses.create(
-                model=self.model,
-                input=[
-                    {
-                        "role": "system",
-                        "content": self.prompt,
-                    },
-                    {"role": "user", "content": batch_json},
-                ],
-                temperature=0.0,
-            )
-            logger.debug(f"Response:\n{response.output_text}")
+        max_retries = 3
+        retry_wait_sec = 5
 
-        except (APIConnectionError, RequestsConnectionError) as e:
-            # Connection Errorの場合はリトライせずに例外を再発生
-            logger.error(f"CONNECTION ERROR: {e}")
-            raise
+        for attempt in range(1, max_retries + 1):
+            try:
+                response = self.client.responses.create(
+                    model=self.model,
+                    input=[
+                        {
+                            "role": "system",
+                            "content": self.prompt,
+                        },
+                        {"role": "user", "content": batch_json},
+                    ],
+                    temperature=0.0,
+                )
+                logger.debug(f"Response:\n{response.output_text}")
+                return response.output_text
 
-        return response.output_text
+            except (APIConnectionError, RequestsConnectionError) as e:
+                logger.warning(f"CONNECTION ERROR (attempt {attempt}/{max_retries}): {e}")
+                if attempt < max_retries:
+                    logger.info("Recreating httpx.Client and waiting before retry...")
+                    self._recreate_clients()
+                    time.sleep(retry_wait_sec)
+                else:
+                    msg = (
+                        f"接続に3回連続で失敗しました。"
+                        f"API ({self.api_base}) が起動しているか確認してください。"
+                    )
+                    logger.error(msg)
+                    raise RuntimeError(msg) from e
 
     def _process_single_batch(
         self,
